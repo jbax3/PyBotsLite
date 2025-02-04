@@ -78,7 +78,9 @@
 <body>
   <!-- Left: Code Editor -->
   <div id="editor">
-    <h3>Python Code</h3>
+    <h3>PyBots</h3>
+    <p>A little game for playing around with a robot.</p>
+    <p></p>
     <p>Enter your control code (for example, a bang–bang controller):</p>
     <pre>
 def racer_control():
@@ -88,6 +90,7 @@ def racer_control():
     else:
         racer.left_motor_speed = 3
         racer.right_motor_speed = 1
+    print(racer.sensor_val)
     </pre>
     <!-- This textarea is replaced by CodeMirror -->
     <textarea id="code-input" placeholder="Enter your control code here"></textarea>
@@ -314,7 +317,7 @@ sys.stderr = DOMConsole()
         
         // --- Draw Sensor and Power Text ---
         ctx.font = "14px Arial";
-        ctx.fillStyle = "white";
+        ctx.fillStyle = "black";
         ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
         ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
         
