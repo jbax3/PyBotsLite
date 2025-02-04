@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Race Car Simulator with Rotated Sensor Sampling</title>
+  <title>Race Car Simulator with Correct Sensor Alignment</title>
   <style>
     body {
       display: flex;
@@ -42,18 +42,25 @@
   </style>
 </head>
 <body>
-  <!-- Left: Python Code Editor -->
+  <!-- Left: Code Editor for User-Defined Control -->
   <div id="editor">
     <h3>Python Code</h3>
-    <p>Enter commands to control the race car. For example:</p>
-    <pre>racer.move_forward(100)</pre>
-    <pre>racer.apply_power(80, 30)</pre>
-    <textarea id="code-input" placeholder="e.g., racer.move_forward(100)"></textarea>
+    <p>Enter your control code. For example, a bang–bang controller:</p>
+    <pre>
+def racer_control():
+    if racer.sensor_val > 150:
+        racer.left_motor_speed = 1
+        racer.right_motor_speed = 3
+    else:
+        racer.left_motor_speed = 3
+        racer.right_motor_speed = 1
+    </pre>
+    <textarea id="code-input" placeholder="Enter your control code here"></textarea>
     <br>
     <button id="run-code">Run Code</button>
   </div>
 
-  <!-- Right: Canvas for Simulation -->
+  <!-- Right: Simulation Canvas -->
   <div id="canvas-container">
     <canvas id="simCanvas" width="800" height="600"></canvas>
   </div>
@@ -79,7 +86,7 @@
       const carImage = new Image();
       carImage.src = "Robot_new.svg";
       
-      // Create an offscreen canvas that holds a copy of the background.
+      // Create an offscreen canvas to hold a copy of the background.
       const offscreenBg = document.createElement('canvas');
       offscreenBg.width = canvas.width;
       offscreenBg.height = canvas.height;
@@ -87,7 +94,7 @@
       backgroundMap.onload = () => {
         offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
       };
-
+      
       // Create a temporary canvas for rotated sensor sampling.
       // Its dimensions match the sensor box.
       const sensorWidth = Number(racer.sensor_width);
@@ -102,7 +109,7 @@
         const dt = (time - lastTime) / 1000;
         lastTime = time;
         
-        // Advance the simulation.
+        // Advance simulation.
         racer.update(dt);
         
         // Retrieve simulation state.
@@ -125,22 +132,19 @@
         }
         
         // --- Compute Sensor Box World Coordinates ---
-        // We want the sensor box to be flush with the front of the car.
-        // In car local coordinates (angle = 0 means car facing upward),
-        // the front edge is at y = -carHeight/2.
-        // Place the sensor box so its bottom edge is flush.
-        // In car coordinates, top-left of the sensor box is:
-        //    (-sensorWidth/2, -carHeight/2 - sensorHeight)
-        // To get world coordinates, compute the sensor box center:
-        const sensorCenterLocalX = 0;
-        const sensorCenterLocalY = -carHeight/2 - sensorHeight/2;
-        // Transform to world coordinates:
-        // Since rotation is about the car's center (x, y):
-        const sensorCenterWorldX = x + Math.sin(angle) * (-sensorCenterLocalY);
-        const sensorCenterWorldY = y - Math.cos(angle) * (-sensorCenterLocalY);
-        // Then top-left of sensor box in world coordinates:
-        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth/2;
-        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight/2;
+        // In the car's local coordinate system (where the car faces upward when angle=0),
+        // the car's front edge is at y = -carHeight/2.
+        // We want the sensor box to be flush with the front, meaning its bottom edge is at -carHeight/2.
+        // Thus, in car coordinates, the sensor box's top-left corner is:
+        //    ( -sensorWidth/2, -carHeight/2 - sensorHeight )
+        // The sensor box's center in car coordinates is then:
+        //    ( 0, -carHeight/2 - sensorHeight/2 )
+        // Convert this center to world coordinates:
+        const sensorCenterWorldX = x + (0 * Math.cos(angle) - (-carHeight/2 - sensorHeight/2) * Math.sin(angle));
+        const sensorCenterWorldY = y + (0 * Math.sin(angle) + (-carHeight/2 - sensorHeight/2) * Math.cos(angle));
+        // Now, the sensor box world top-left is:
+        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
+        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
         
         // --- Draw the Scene ---
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -155,30 +159,32 @@
           ctx.restore();
         }
         
-        // --- Draw Sensor Box (Tangent to the Car) ---
-        // Draw in the car's local coordinates so it remains flush.
+        // --- Draw Sensor Box (Flush with Car Front) ---
+        // Draw in the car's local coordinate system:
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(angle);
         ctx.strokeStyle = "purple";
         ctx.lineWidth = 2;
-        // Draw with bottom edge flush with car front:
+        // Draw the sensor box with top-left at (-sensorWidth/2, -carHeight/2 - sensorHeight)
         ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
         ctx.restore();
         
         // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
-        // We want to sample the sensor region rotated by the car's angle.
-        // Use tempCanvas: translate to its center, rotate by -angle,
-        // then translate so that the sensor center (in world coordinates) aligns with tempCanvas center.
+        // Use a temporary canvas to rotate the offscreen background so that the sensor region is axis-aligned.
         tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
         tempCtx.save();
+        // Move origin to center of tempCanvas.
         tempCtx.translate(sensorWidth/2, sensorHeight/2);
+        // Rotate by -angle to "undo" the car's rotation.
         tempCtx.rotate(-angle);
+        // Translate so that the sensor box center in world coordinates aligns with the tempCanvas center.
         tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
+        // Draw the offscreen background.
         tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
         tempCtx.restore();
         
-        // Now sample the sensor data from tempCanvas.
+        // Now sample sensor data from tempCanvas.
         let sensorData;
         try {
           sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
@@ -196,11 +202,11 @@
         }
         const avgBrightness = count ? sum / count : 0;
         console.log("Sensor brightness:", avgBrightness);
-        // Update the simulation's sensor value.
+        // Update simulation sensor value.
         racer.sensor_val = avgBrightness;
         
         // --- Draw Sensor Picture-in-Picture (PIP) ---
-        const scaleFactor = 5; // adjust as desired
+        const scaleFactor = 5; // Adjust as needed.
         const pipWidth = sensorWidth * scaleFactor;
         const pipHeight = sensorHeight * scaleFactor;
         const pipX = canvas.width - pipWidth - 10;
@@ -215,6 +221,11 @@
         ctx.fillStyle = "black";
         ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
         ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
+        
+        // --- Run User Control Code, if defined ---
+        if (pyodide.globals.get("racer_control")) {
+          pyodide.runPython("racer_control()");
+        }
         
         requestAnimationFrame(animate);
       }
