@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Race Car Simulator with Correct Sensor Alignment</title>
+  <title>Race Car Simulator with User-Controlled Sensor Logic and Syntax Highlighting</title>
+  <!-- CodeMirror CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
+  <!-- Optionally, include a theme (optional) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/idea.min.css">
   <style>
     body {
       display: flex;
@@ -16,22 +20,28 @@
       background: #f7f7f7;
       border-right: 1px solid #ccc;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    #editor h3, #editor p, #editor pre {
+      margin: 0 0 5px 0;
+    }
+    #code-editor {
+      flex: 1;
     }
     #canvas-container {
       flex: 1;
       position: relative;
       background: #ddd;
     }
-    textarea {
-      width: 100%;
-      height: 150px;
-      font-family: monospace;
-      font-size: 14px;
-      margin-bottom: 10px;
+    /* Make the CodeMirror editor fill the space */
+    .CodeMirror {
+      height: 70%;
     }
     button {
       font-size: 16px;
       padding: 5px 10px;
+      margin-top: 10px;
     }
     canvas {
       border: 1px solid #000;
@@ -42,7 +52,7 @@
   </style>
 </head>
 <body>
-  <!-- Left: Code Editor for User-Defined Control -->
+  <!-- Left: Code Editor -->
   <div id="editor">
     <h3>Python Code</h3>
     <p>Enter your control code. For example, a bang–bang controller:</p>
@@ -55,8 +65,8 @@ def racer_control():
         racer.left_motor_speed = 3
         racer.right_motor_speed = 1
     </pre>
+    <!-- The textarea will be replaced by CodeMirror -->
     <textarea id="code-input" placeholder="Enter your control code here"></textarea>
-    <br>
     <button id="run-code">Run Code</button>
   </div>
 
@@ -65,9 +75,20 @@ def racer_control():
     <canvas id="simCanvas" width="800" height="600"></canvas>
   </div>
 
+  <!-- Load CodeMirror Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/python/python.min.js"></script>
+
   <!-- Load Pyodide -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
   <script>
+    // Initialize CodeMirror on the textarea
+    const editor = CodeMirror.fromTextArea(document.getElementById("code-input"), {
+      lineNumbers: true,
+      mode: "python",
+      theme: "idea"  // You can change the theme if desired.
+    });
+
     async function main() {
       // Load Pyodide and the simulation code.
       const pyodide = await loadPyodide();
@@ -95,15 +116,6 @@ def racer_control():
         offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
       };
       
-      // Create a temporary canvas for rotated sensor sampling.
-      // Its dimensions match the sensor box.
-      const sensorWidth = Number(racer.sensor_width);
-      const sensorHeight = Number(racer.sensor_height);
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sensorWidth;
-      tempCanvas.height = sensorHeight;
-      const tempCtx = tempCanvas.getContext("2d");
-      
       let lastTime = performance.now();
       function animate(time) {
         const dt = (time - lastTime) / 1000;
@@ -118,6 +130,8 @@ def racer_control():
         const angle = Number(racer.angle);
         const carWidth = Number(racer.racer_width);
         const carHeight = Number(racer.racer_height);
+        const sensorWidth = Number(racer.sensor_width);
+        const sensorHeight = Number(racer.sensor_height);
         
         // --- Collision Detection ---
         const bt = 10;  // border thickness
@@ -132,17 +146,17 @@ def racer_control():
         }
         
         // --- Compute Sensor Box World Coordinates ---
-        // In the car's local coordinate system (where the car faces upward when angle=0),
-        // the car's front edge is at y = -carHeight/2.
-        // We want the sensor box to be flush with the front, meaning its bottom edge is at -carHeight/2.
-        // Thus, in car coordinates, the sensor box's top-left corner is:
-        //    ( -sensorWidth/2, -carHeight/2 - sensorHeight )
-        // The sensor box's center in car coordinates is then:
-        //    ( 0, -carHeight/2 - sensorHeight/2 )
-        // Convert this center to world coordinates:
+        // We want the sensor box to be flush with the car's front.
+        // In car's local coordinates (angle=0 means car faces upward), the car's front edge is at y = -carHeight/2.
+        // Place the sensor box so its bottom edge is flush with the car's front.
+        // Thus, in car coordinates, the sensor box's top-left is at:
+        //    (-sensorWidth/2, -carHeight/2 - sensorHeight)
+        // The sensor box's center in car coordinates is:
+        //    (0, -carHeight/2 - sensorHeight/2)
+        // Convert that center to world coordinates:
         const sensorCenterWorldX = x + (0 * Math.cos(angle) - (-carHeight/2 - sensorHeight/2) * Math.sin(angle));
         const sensorCenterWorldY = y + (0 * Math.sin(angle) + (-carHeight/2 - sensorHeight/2) * Math.cos(angle));
-        // Now, the sensor box world top-left is:
+        // Then the top-left in world coordinates is:
         const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
         const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
         
@@ -160,31 +174,35 @@ def racer_control():
         }
         
         // --- Draw Sensor Box (Flush with Car Front) ---
-        // Draw in the car's local coordinate system:
+        // Draw in the car's local coordinate system.
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(angle);
         ctx.strokeStyle = "purple";
         ctx.lineWidth = 2;
-        // Draw the sensor box with top-left at (-sensorWidth/2, -carHeight/2 - sensorHeight)
         ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
         ctx.restore();
         
         // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
-        // Use a temporary canvas to rotate the offscreen background so that the sensor region is axis-aligned.
+        // Use a temporary canvas to "unrotate" the sensor region.
+        // Create a temporary canvas that matches the sensor box dimensions.
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = sensorWidth;
+        tempCanvas.height = sensorHeight;
+        const tempCtx = tempCanvas.getContext("2d");
         tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
         tempCtx.save();
-        // Move origin to center of tempCanvas.
+        // Translate to the center of the temporary canvas.
         tempCtx.translate(sensorWidth/2, sensorHeight/2);
-        // Rotate by -angle to "undo" the car's rotation.
+        // Rotate by -angle to undo the car's rotation.
         tempCtx.rotate(-angle);
-        // Translate so that the sensor box center in world coordinates aligns with the tempCanvas center.
+        // Translate so that the sensor box's center aligns with the temp canvas center.
         tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
-        // Draw the offscreen background.
+        // Draw the offscreen background onto the temporary canvas.
         tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
         tempCtx.restore();
         
-        // Now sample sensor data from tempCanvas.
+        // Now sample the sensor data.
         let sensorData;
         try {
           sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
@@ -202,11 +220,10 @@ def racer_control():
         }
         const avgBrightness = count ? sum / count : 0;
         console.log("Sensor brightness:", avgBrightness);
-        // Update simulation sensor value.
         racer.sensor_val = avgBrightness;
         
         // --- Draw Sensor Picture-in-Picture (PIP) ---
-        const scaleFactor = 5; // Adjust as needed.
+        const scaleFactor = 5;
         const pipWidth = sensorWidth * scaleFactor;
         const pipHeight = sensorHeight * scaleFactor;
         const pipX = canvas.width - pipWidth - 10;
@@ -222,7 +239,7 @@ def racer_control():
         ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
         ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
         
-        // --- Run User Control Code, if defined ---
+        // --- Run User-Controlled Code, if defined ---
         if (pyodide.globals.get("racer_control")) {
           pyodide.runPython("racer_control()");
         }
@@ -233,7 +250,8 @@ def racer_control():
       
       // Hook up the "Run Code" button.
       document.getElementById("run-code").addEventListener("click", async () => {
-        const code = document.getElementById("code-input").value;
+        // Get code from the CodeMirror instance.
+        const code = editor.getValue();
         try {
           await pyodide.runPythonAsync(code);
         } catch (err) {
