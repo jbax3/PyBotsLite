@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Race Car Simulator with Rotated Sensor Sampling</title>
+  <style>
+    body {
+      display: flex;
+      height: 100vh;
+      margin: 0;
+      font-family: sans-serif;
+    }
+    #editor {
+      width: 30%;
+      padding: 10px;
+      background: #f7f7f7;
+      border-right: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      background: #ddd;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      font-family: monospace;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    button {
+      font-size: 16px;
+      padding: 5px 10px;
+    }
+    canvas {
+      border: 1px solid #000;
+      display: block;
+      margin: auto;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <!-- Left: Python Code Editor -->
+  <div id="editor">
+    <h3>Python Code</h3>
+    <p>Enter commands to control the race car. For example:</p>
+    <pre>racer.move_forward(100)</pre>
+    <pre>racer.apply_power(80, 30)</pre>
+    <textarea id="code-input" placeholder="e.g., racer.move_forward(100)"></textarea>
+    <br>
+    <button id="run-code">Run Code</button>
+  </div>
+
+  <!-- Right: Canvas for Simulation -->
+  <div id="canvas-container">
+    <canvas id="simCanvas" width="800" height="600"></canvas>
+  </div>
+
+  <!-- Load Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+  <script>
+    async function main() {
+      // Load Pyodide and our simulation code.
+      const pyodide = await loadPyodide();
+      const response = await fetch('racer.py');
+      const racerCode = await response.text();
+      await pyodide.runPythonAsync(racerCode);
+      const racer = pyodide.globals.get("racer");
+      
+      // Set up the main canvas.
+      const canvas = document.getElementById("simCanvas");
+      const ctx = canvas.getContext("2d");
+      
+      // Load the background map and car images.
+      const backgroundMap = new Image();
+      backgroundMap.src = "Robot_Racer_Path_new.svg";
+      const carImage = new Image();
+      carImage.src = "Robot_new.svg";
+      
+      // Create an offscreen canvas holding the background.
+      const offscreenBg = document.createElement('canvas');
+      offscreenBg.width = canvas.width;
+      offscreenBg.height = canvas.height;
+      const offscreenBgCtx = offscreenBg.getContext("2d");
+      backgroundMap.onload = () => {
+        offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
+      };
+
+      // Create a temporary canvas for rotated sensor sampling.
+      const sensorWidth = Number(racer.sensor_width);
+      const sensorHeight = Number(racer.sensor_height);
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = sensorWidth;
+      tempCanvas.height = sensorHeight;
+      const tempCtx = tempCanvas.getContext("2d");
+      
+      let lastTime = performance.now();
+      function animate(time) {
+        const dt = (time - lastTime) / 1000;
+        lastTime = time;
+        
+        // Advance the simulation.
+        racer.update(dt);
+        
+        // Retrieve simulation state.
+        const x = Number(racer.x);
+        const y = Number(racer.y);
+        const angle = Number(racer.angle);
+        const carWidth = Number(racer.racer_width);
+        const carHeight = Number(racer.racer_height);
+        
+        // --- Collision Detection ---
+        const bt = 10;  // border thickness
+        const rw = carWidth / 2;
+        const rh = carHeight / 2;
+        const x1 = bt + rw;
+        const x2 = canvas.width - bt - rw;
+        const y1 = bt + rh;
+        const y2 = canvas.height - bt - rh;
+        if (x < x1 || x > x2 || y < y1 || y > y2) {
+          // Stop the car if it goes outside the safe region.
+          racer.apply_power(0, 0);
+        }
+        
+        // --- Compute Sensor Box in World Coordinates ---
+        // For drawing the sensor box in world space, we use the offset:
+        // offset = carHeight/2 + sensorHeight/2
+        const offset = carHeight / 2 + sensorHeight / 2;
+        // Compute sensor center in world coordinates:
+        const sensorCenterX = x + Math.sin(angle) * offset;
+        const sensorCenterY = y - Math.cos(angle) * offset;
+        // Compute top-left of sensor box in world coordinates.
+        const sensorBoxWorldX = sensorCenterX - sensorWidth / 2;
+        const sensorBoxWorldY = sensorCenterY - sensorHeight / 2;
+        
+        // --- Draw the Scene (Background and Car) ---
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (backgroundMap.complete) {
+          ctx.drawImage(backgroundMap, 0, 0, canvas.width, canvas.height);
+        }
+        if (carImage.complete) {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(angle);
+          ctx.drawImage(carImage, -carWidth/2, -carHeight/2, carWidth, carHeight);
+          ctx.restore();
+        }
+        
+        // --- Draw Sensor Box (Tangent to the Car) ---
+        // Draw the sensor box in the car's local coordinate system.
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        // Here, we want the sensor box to be flush with the car's front.
+        // In car coordinates, the car's front edge is at y = -carHeight/2.
+        // We place the sensor so its bottom edge is flush, meaning its top-left is:
+        // (-sensorWidth/2, -carHeight/2 - sensorHeight)
+        ctx.strokeStyle = "purple";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
+        ctx.restore();
+        
+        // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
+        // Instead of sampling directly from offscreenBg, we use a temporary canvas to rotate by the car's angle.
+        tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
+        tempCtx.save();
+        // Translate to the center of tempCanvas.
+        tempCtx.translate(sensorWidth/2, sensorHeight/2);
+        // Rotate by -angle so that the sensor region becomes axis-aligned.
+        tempCtx.rotate(-angle);
+        // Translate so that the sensor center in world coordinates aligns with tempCanvas center.
+        tempCtx.translate(-sensorCenterX, -sensorCenterY);
+        // Draw the offscreen background onto the tempCanvas.
+        tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
+        tempCtx.restore();
+        
+        // Now extract the sensor data from tempCanvas.
+        let sensorData;
+        try {
+          sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
+        } catch (e) {
+          sensorData = null;
+        }
+        let sum = 0, count = 0;
+        if (sensorData) {
+          const data = sensorData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            sum += (data[i] + data[i+1] + data[i+2]) / 3;
+            count++;
+          }
+        }
+        const avgBrightness = count ? sum / count : 0;
+        // Update the simulation's sensor value.
+        racer.sensor_val = avgBrightness;
+        
+        // --- Draw Sensor Picture-in-Picture (PIP) ---
+        const scaleFactor = 5; // adjust as desired
+        const pipWidth = sensorWidth * scaleFactor;
+        const pipHeight = sensorHeight * scaleFactor;
+        const pipX = canvas.width - pipWidth - 10;
+        const pipY = 10;
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
+        ctx.drawImage(tempCanvas, pipX, pipY, pipWidth, pipHeight);
+        
+        // --- Draw Sensor and Power Text ---
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "black";
+        ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
+        ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
+        
+        requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+      
+      // Hook up the "Run Code" button.
+      document.getElementById("run-code").addEventListener("click", async () => {
+        const code = document.getElementById("code-input").value;
+        try {
+          await pyodide.runPythonAsync(code);
+        } catch (err) {
+          console.error("Python Error:", err);
+          alert("Python Error:\n" + err);
+        }
+      });
+    }
+    main();
+  </script>
+</body>
+</html>
