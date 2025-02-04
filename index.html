@@ -2,63 +2,76 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Race Car Simulator with Syntax Highlighting & Console</title>
-  <!-- CodeMirror CSS -->
+  <title>Race Car Simulator – Dark Theme</title>
+  <!-- CodeMirror CSS and Dracula Theme -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
-  <!-- Optional theme -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/idea.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/dracula.min.css">
+  <!-- CodeMirror hint CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.css">
   <style>
+    /* Dark theme overall */
     body {
-      display: flex;
-      height: 100vh;
       margin: 0;
       font-family: sans-serif;
+      background-color: #121212;
+      color: #EEE;
+      display: flex;
+      height: 100vh;
     }
-    /* Left column for code editor */
+    /* Left column: Code editor */
     #editor {
       width: 30%;
       padding: 10px;
-      background: #f7f7f7;
-      border-right: 1px solid #ccc;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
     }
     #editor h3, #editor p, #editor pre {
       margin: 0 0 5px 0;
+      color: #EEE;
     }
-    /* Make CodeMirror fill 70% of the left column */
+    /* CodeMirror takes 70% height */
     .CodeMirror {
       height: 70%;
+      background-color: #1e1e1e;
     }
     button {
       font-size: 16px;
       padding: 5px 10px;
       margin-top: 10px;
+      background-color: #333;
+      color: #EEE;
+      border: none;
+      cursor: pointer;
     }
-    /* Right column for canvas and console */
+    button:hover {
+      background-color: #444;
+    }
+    /* Right column: Canvas and Console */
     #canvas-container {
       flex: 1;
       display: flex;
       flex-direction: column;
-      background: #ddd;
+      background-color: #121212;
     }
     canvas {
-      border: 1px solid #000;
-      background: white;
-      /* Let the canvas take most of the vertical space */
       flex: 1;
+      border: 1px solid #444;
+      background-color: #1e1e1e;
       display: block;
       margin: auto;
     }
-    /* Console area directly below the canvas */
+    /* Console area below canvas */
     #console {
       height: 150px;
       overflow-y: auto;
-      background: #000;
+      background-color: #000;
       color: #0F0;
       font-family: monospace;
       padding: 5px;
+      border-top: 1px solid #333;
     }
   </style>
 </head>
@@ -66,7 +79,7 @@
   <!-- Left: Code Editor -->
   <div id="editor">
     <h3>Python Code</h3>
-    <p>Enter your control code (e.g., a bang–bang controller):</p>
+    <p>Enter your control code (for example, a bang–bang controller):</p>
     <pre>
 def racer_control():
     if racer.sensor_val > 150:
@@ -76,7 +89,7 @@ def racer_control():
         racer.left_motor_speed = 3
         racer.right_motor_speed = 1
     </pre>
-    <!-- The textarea will be replaced by CodeMirror -->
+    <!-- This textarea is replaced by CodeMirror -->
     <textarea id="code-input" placeholder="Enter your control code here"></textarea>
     <button id="run-code">Run Code</button>
   </div>
@@ -90,41 +103,86 @@ def racer_control():
   <!-- Load CodeMirror Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.js"></script>
 
   <!-- Load Pyodide -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
   <script>
-    // Initialize CodeMirror on the textarea.
+    // Initialize CodeMirror with dark theme and autocomplete.
     const editor = CodeMirror.fromTextArea(document.getElementById("code-input"), {
       lineNumbers: true,
       mode: "python",
-      theme: "idea"
+      theme: "dracula",
+      extraKeys: {
+        "Ctrl-Space": "autocomplete",
+        "Tab": "autocomplete" // Use Tab to trigger autocomplete.
+      },
+      hintOptions: { completeSingle: false }
     });
-
+    
+    // Trigger autocomplete on every input.
+    editor.on("inputRead", function(cm, change) {
+      if (change.text[0] && change.text[0].trim() !== "") {
+        cm.showHint({ completeSingle: false });
+      }
+    });
+    
+    // Custom autocomplete helper based on the racer object.
+    let racerCompletions = [];
+    function racerHint(cm, options) {
+      const cursor = cm.getCursor();
+      const token = cm.getTokenAt(cursor);
+      const start = token.start, end = cursor.ch, word = token.string;
+      const list = racerCompletions.filter(item => item.startsWith(word));
+      return { list: list, from: CodeMirror.Pos(cursor.line, start), to: CodeMirror.Pos(cursor.line, end) };
+    }
+    CodeMirror.registerHelper("hint", "python", racerHint);
+    
     async function main() {
       // Load Pyodide.
       const pyodide = await loadPyodide();
       
-      // Redirect Python stdout/stderr to the console area.
+      // Redirect Python stdout/stderr to our console.
       await pyodide.runPythonAsync(`
 import sys
 from js import document
 class DOMConsole:
+    def __init__(self):
+        self.atBeginning = True
     def write(self, s):
         console = document.getElementById("console")
-        # Append text and a newline if needed.
-        console.innerText += s
+        # Split s into lines.
+        lines = s.split("\\n")
+        for i, line in enumerate(lines):
+            if i == 0:
+                if self.atBeginning and line:
+                    console.innerText += "> " + line
+                else:
+                    console.innerText += line
+            else:
+                console.innerText += "\\n> " + line
+        if s.endswith("\\n"):
+            self.atBeginning = True
+        else:
+            self.atBeginning = False
+        console.scrollTop = console.scrollHeight
     def flush(self):
         pass
 sys.stdout = DOMConsole()
 sys.stderr = DOMConsole()
       `);
       
-      // Load the simulation code.
+      // Load simulation code.
       const response = await fetch('racer.py');
       const racerCode = await response.text();
       await pyodide.runPythonAsync(racerCode);
       const racer = pyodide.globals.get("racer");
+      
+      // Obtain a list of public attributes/methods from racer.
+      let racerCompletionsString = pyodide.runPython(
+        '",".join([s for s in dir(racer) if not s.startswith("__")])'
+      );
+      racerCompletions = racerCompletionsString.split(",");
       
       // Set up the main canvas.
       const canvas = document.getElementById("simCanvas");
@@ -136,7 +194,7 @@ sys.stderr = DOMConsole()
       const carImage = new Image();
       carImage.src = "Robot_new.svg";
       
-      // Create an offscreen canvas to hold a copy of the background.
+      // Create an offscreen canvas for the background.
       const offscreenBg = document.createElement('canvas');
       offscreenBg.width = canvas.width;
       offscreenBg.height = canvas.height;
@@ -175,18 +233,14 @@ sys.stderr = DOMConsole()
         }
         
         // --- Compute Sensor Box World Coordinates ---
-        // In the car's local coordinate system (angle=0 means car faces upward),
-        // the sensor box should be flush with the front.
-        // In car coordinates, the sensor box's top-left is at:
+        // In car local coordinates, sensor box's top-left is at:
         // (-sensorWidth/2, -carHeight/2 - sensorHeight)
-        // Compute its center in car coordinates:
-        const sensorCenterLocalY = -carHeight/2 - sensorHeight/2;
-        // Convert the sensor center to world coordinates:
-        const sensorCenterWorldX = x + (0 * Math.cos(angle) - sensorCenterLocalY * Math.sin(angle));
-        const sensorCenterWorldY = y + (0 * Math.sin(angle) + sensorCenterLocalY * Math.cos(angle));
-        // Then the sensor box's world top-left is:
-        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth/2;
-        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight/2;
+        // Sensor box center is then (0, -carHeight/2 - sensorHeight/2).
+        // Convert to world coordinates:
+        const sensorCenterWorldX = x + (0 * Math.cos(angle) - (-carHeight/2 - sensorHeight/2) * Math.sin(angle));
+        const sensorCenterWorldY = y + (0 * Math.sin(angle) + (-carHeight/2 - sensorHeight/2) * Math.cos(angle));
+        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
+        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
         
         // --- Draw the Scene ---
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -218,16 +272,16 @@ sys.stderr = DOMConsole()
         const tempCtx = tempCanvas.getContext("2d");
         tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
         tempCtx.save();
-        // Translate to center of temporary canvas.
+        // Translate to center of tempCanvas.
         tempCtx.translate(sensorWidth/2, sensorHeight/2);
         // Rotate by -angle to undo car rotation.
         tempCtx.rotate(-angle);
-        // Translate so that sensor center aligns with temp canvas center.
+        // Translate so that sensor center aligns with tempCanvas center.
         tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
         tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
         tempCtx.restore();
         
-        // Sample sensor data from tempCanvas.
+        // Sample sensor data.
         let sensorData;
         try {
           sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
@@ -260,7 +314,7 @@ sys.stderr = DOMConsole()
         
         // --- Draw Sensor and Power Text ---
         ctx.font = "14px Arial";
-        ctx.fillStyle = "black";
+        ctx.fillStyle = "white";
         ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
         ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
         
