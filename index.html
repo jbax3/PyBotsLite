@@ -2,346 +2,248 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Race Car Simulator – Dark Theme</title>
-  <!-- CodeMirror CSS and Dracula Theme -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/dracula.min.css">
-  <!-- CodeMirror hint CSS -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.css">
+  <title>PyBots Neon Trace with Typewriter Description</title>
+  <!-- Include p5.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <style>
-    /* Dark theme overall */
-    body {
-      margin: 0;
-      font-family: sans-serif;
-      background-color: #121212;
-      color: #EEE;
-      display: flex;
-      height: 100vh;
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: #282a36; 
     }
-    /* Left column: Code editor */
-    #editor {
-      width: 30%;
-      padding: 10px;
-      background-color: #1e1e1e;
-      border-right: 1px solid #333;
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-    }
-    #editor h3, #editor p, #editor pre {
-      margin: 0 0 5px 0;
-      color: #EEE;
-    }
-    /* CodeMirror takes 70% height */
-    .CodeMirror {
-      height: 70%;
-      background-color: #1e1e1e;
-    }
-    button {
+    /* Style for the "Get Started" button */
+    #getStarted {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 10px 20px;
       font-size: 16px;
-      padding: 5px 10px;
-      margin-top: 10px;
-      background-color: #333;
-      color: #EEE;
+      background-color: #8be9fd;
+      color: #282a36;
       border: none;
+      border-radius: 4px;
       cursor: pointer;
-    }
-    button:hover {
-      background-color: #444;
-    }
-    /* Right column: Canvas and Console */
-    #canvas-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      background-color: #121212;
-    }
-    canvas {
-      flex: 1;
-      border: 1px solid #444;
-      background-color: #1e1e1e;
-      display: block;
-      margin: auto;
-    }
-    /* Console area below canvas */
-    #console {
-      height: 150px;
-      overflow-y: auto;
-      background-color: #000;
-      color: #0F0;
-      font-family: monospace;
-      padding: 5px;
-      border-top: 1px solid #333;
+      z-index: 100; /* Ensures the button is above the canvas */
     }
   </style>
 </head>
 <body>
-  <!-- Left: Code Editor -->
-  <div id="editor">
-    <h3>PyBots</h3>
-    <p>A little game for playing around with a robot.</p>
-    <p></p>
-    <p>Enter your control code (for example, a bang–bang controller):</p>
-    <pre>
-def racer_control():
-    if racer.sensor_val > 150:
-        racer.left_motor_speed = 1
-        racer.right_motor_speed = 3
-    else:
-        racer.left_motor_speed = 3
-        racer.right_motor_speed = 1
-    print(racer.sensor_val)
-    </pre>
-    <!-- This textarea is replaced by CodeMirror -->
-    <textarea id="code-input" placeholder="Enter your control code here"></textarea>
-    <button id="run-code">Run Code</button>
-  </div>
+  <!-- "Get Started" button -->
+  <button id="getStarted">Get Started</button>
+  
+<script>
+  // ===============================
+  // Dracula Dark Theme Colors
+  // ===============================
+  const COLORS = {
+    background: "#282a36",
+    currentLine: "#44475a",  // For ghost outline (all original points)
+    neon: "#8be9fd",         // Neon highlight color for reached points
+    carTint: "#ff79c6"       // Tint for the car SVG
+  };
 
-  <!-- Right: Canvas and Console -->
-  <div id="canvas-container">
-    <canvas id="simCanvas" width="800" height="600"></canvas>
-    <div id="console"></div>
-  </div>
+  // ===============================
+  // Global Variables for PyBots Animation
+  // ===============================
+  let carImg, font;
+  let points = [];         // Points outlining the text "PyBots"
+  let currentIndex = 0;    // Index of the next target point in the points array
+  let currentPos;          // p5.Vector for the car's current position
+  const speed = 3;         // Movement speed (pixels per frame)
+  const carScale = 0.5;    // Scale factor for the car SVG
 
-  <!-- Load CodeMirror Libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/python/python.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.js"></script>
+  // We'll record only the original points that the robot exactly reaches.
+  let permanentTrace = []; // Array of p5.Vector positions (only those in "points")
 
-  <!-- Load Pyodide -->
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
-  <script>
-    // Initialize CodeMirror with dark theme and autocomplete.
-    const editor = CodeMirror.fromTextArea(document.getElementById("code-input"), {
-      lineNumbers: true,
-      mode: "python",
-      theme: "dracula",
-      extraKeys: {
-        "Ctrl-Space": "autocomplete",
-        "Tab": "autocomplete" // Use Tab to trigger autocomplete.
-      },
-      hintOptions: { completeSingle: false }
-    });
+  // Text parameters for the logo
+  const txt = "PyBots";
+  const fontSize = 150;
+
+  // ===============================
+  // Car SVG (provided)
+  // ===============================
+  const carSVGString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 47 71">
+    <!-- Body -->
+    <path d="M 10,305.5 v -6.2 l 1.3,-3.2 12.2,-1.6 12,1.6 1.3,3.2 v 6.6 2.3 5.9 l 1.3,8.2 v 21.6 l -1.3,3.3 v 6.2 2.3 6.1 H 23.5 10.1 l -0.1,-0.4 c -0.04,-0.2 -0.08,-1.6 -0.08,-3.2 v -5.1 -2.3 -5.8 l -1.2,-3.3 v -21.5 l 1.2,-8.3 v -6.2 z" transform="translate(0,-294.5)" fill="black"/>
     
-    // Trigger autocomplete on every input.
-    editor.on("inputRead", function(cm, change) {
-      if (change.text[0] && change.text[0].trim() !== "") {
-        cm.showHint({ completeSingle: false });
-      }
-    });
+    <!-- Vertical Stripes -->
+    <path d="m 17.6,1 -0.5,65.9 h 2.9 L 19.4,0.7 Z" fill="black"/>
+    <path d="m 29.5,1 0.5,65.9 h -2.9 l 0.5,-66.2 z" fill="black"/>
     
-    // Custom autocomplete helper based on the racer object.
-    let racerCompletions = [];
-    function racerHint(cm, options) {
-      const cursor = cm.getCursor();
-      const token = cm.getTokenAt(cursor);
-      const start = token.start, end = cursor.ch, word = token.string;
-      const list = racerCompletions.filter(item => item.startsWith(word));
-      return { list: list, from: CodeMirror.Pos(cursor.line, start), to: CodeMirror.Pos(cursor.line, end) };
+    <!-- Horizontal Bars -->
+    <rect x="8.5" y="10.4" width="30" height="3.9" fill="black"/>
+    <rect x="8.5" y="58.7" width="30" height="3.9" fill="black"/>
+    
+    <!-- Center Bands -->
+    <path d="m 11.8,21.4 -1.3,7.8 h 25.5 l -1.3,-7.8 z" fill="black"/>
+    <path d="m 14.9,56 -3.1,7.3 h 23.4 l -3.1,-7.3 z" fill="black"/>
+    
+    <!-- Legs -->
+    <path d="M 2,71.5 H 6.6 V 87 H 2 Z" fill="black"/>
+    <path d="M 40.4,71.5 H 45 V 87 H 40.4 Z" fill="black"/>
+  </svg>`;
+
+  // ===============================
+  // preload(): Load assets (car image and font)
+  // ===============================
+  function preload() {
+    carImg = loadImage("data:image/svg+xml;base64," + btoa(carSVGString));
+    font = loadFont("https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/pressstart2p/PressStart2P-Regular.ttf");
+  }
+
+  // ===============================
+  // setup(): Initialize canvas, compute outline points, and starting position.
+  // ===============================
+  function setup() {
+    createCanvas(windowWidth, windowHeight);
+    imageMode(CENTER);
+    textFont(font);
+    textSize(fontSize);
+
+    // Compute text bounds and center position.
+    let bounds = font.textBounds(txt, 0, 0, fontSize);
+    let x = (width - bounds.w) / 2 - bounds.x;
+    let y = (height - bounds.h) / 2 - bounds.y;
+
+    // Generate points outlining "PyBots" using textToPoints.
+    // A sampleFactor of 0.2 gives a moderate number of points.
+    points = font.textToPoints(txt, x, y, fontSize, { sampleFactor: 0.2 });
+
+    // Initialize the car at the first point.
+    currentIndex = 0;
+    currentPos = createVector(points[0].x, points[0].y);
+
+    // Add the starting point to the permanent trace.
+    permanentTrace.push(currentPos.copy());
+  }
+
+  // ===============================
+  // draw(): Main animation loop.
+  // ===============================
+  function draw() {
+    background(COLORS.background);
+
+    // --- Draw the ghost outline of "PyBots" ---
+    noStroke();
+    fill(COLORS.currentLine);
+    for (let pt of points) {
+      ellipse(pt.x, pt.y, 3, 3);
     }
-    CodeMirror.registerHelper("hint", "python", racerHint);
-    
-    async function main() {
-      // Load Pyodide.
-      const pyodide = await loadPyodide();
-      
-      // Redirect Python stdout/stderr to our console.
-      await pyodide.runPythonAsync(`
-import sys
-from js import document
-class DOMConsole:
-    def __init__(self):
-        self.atBeginning = True
-    def write(self, s):
-        console = document.getElementById("console")
-        # Split s into lines.
-        lines = s.split("\\n")
-        for i, line in enumerate(lines):
-            if i == 0:
-                if self.atBeginning and line:
-                    console.innerText += "> " + line
-                else:
-                    console.innerText += line
-            else:
-                console.innerText += "\\n> " + line
-        if s.endswith("\\n"):
-            self.atBeginning = True
-        else:
-            self.atBeginning = False
-        console.scrollTop = console.scrollHeight
-    def flush(self):
-        pass
-sys.stdout = DOMConsole()
-sys.stderr = DOMConsole()
-      `);
-      
-      // Load simulation code.
-      const response = await fetch('racer.py');
-      const racerCode = await response.text();
-      await pyodide.runPythonAsync(racerCode);
-      const racer = pyodide.globals.get("racer");
-      
-      // Obtain a list of public attributes/methods from racer.
-      let racerCompletionsString = pyodide.runPython(
-        '",".join([s for s in dir(racer) if not s.startswith("__")])'
-      );
-      racerCompletions = racerCompletionsString.split(",");
-      
-      // Set up the main canvas.
-      const canvas = document.getElementById("simCanvas");
-      const ctx = canvas.getContext("2d");
-      
-      // Load the background map and car images.
-      const backgroundMap = new Image();
-      backgroundMap.src = "Robot_Racer_Path_new.svg";
-      const carImage = new Image();
-      carImage.src = "Robot_new.svg";
-      
-      // Create an offscreen canvas for the background.
-      const offscreenBg = document.createElement('canvas');
-      offscreenBg.width = canvas.width;
-      offscreenBg.height = canvas.height;
-      const offscreenBgCtx = offscreenBg.getContext("2d");
-      backgroundMap.onload = () => {
-        offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
-      };
-      
-      let lastTime = performance.now();
-      function animate(time) {
-        const dt = (time - lastTime) / 1000;
-        lastTime = time;
-        
-        // Advance simulation.
-        racer.update(dt);
-        
-        // Retrieve simulation state.
-        const x = Number(racer.x);
-        const y = Number(racer.y);
-        const angle = Number(racer.angle);
-        const carWidth = Number(racer.racer_width);
-        const carHeight = Number(racer.racer_height);
-        const sensorWidth = Number(racer.sensor_width);
-        const sensorHeight = Number(racer.sensor_height);
-        
-        // --- Collision Detection ---
-        const bt = 10;  // border thickness
-        const rw = carWidth / 2;
-        const rh = carHeight / 2;
-        const x1 = bt + rw;
-        const x2 = canvas.width - bt - rw;
-        const y1 = bt + rh;
-        const y2 = canvas.height - bt - rh;
-        if (x < x1 || x > x2 || y < y1 || y > y2) {
-          racer.apply_power(0, 0);
-        }
-        
-        // --- Compute Sensor Box World Coordinates ---
-        // In car local coordinates, sensor box's top-left is at:
-        // (-sensorWidth/2, -carHeight/2 - sensorHeight)
-        // Sensor box center is then (0, -carHeight/2 - sensorHeight/2).
-        // Convert to world coordinates:
-        const sensorCenterWorldX = x + (0 * Math.cos(angle) - (-carHeight/2 - sensorHeight/2) * Math.sin(angle));
-        const sensorCenterWorldY = y + (0 * Math.sin(angle) + (-carHeight/2 - sensorHeight/2) * Math.cos(angle));
-        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
-        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
-        
-        // --- Draw the Scene ---
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (backgroundMap.complete) {
-          ctx.drawImage(backgroundMap, 0, 0, canvas.width, canvas.height);
-        }
-        if (carImage.complete) {
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(angle);
-          ctx.drawImage(carImage, -carWidth/2, -carHeight/2, carWidth, carHeight);
-          ctx.restore();
-        }
-        
-        // --- Draw Sensor Box (Flush with Car Front) ---
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(angle);
-        ctx.strokeStyle = "purple";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
-        ctx.restore();
-        
-        // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
-        // Create a temporary canvas to "unrotate" the sensor region.
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = sensorWidth;
-        tempCanvas.height = sensorHeight;
-        const tempCtx = tempCanvas.getContext("2d");
-        tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
-        tempCtx.save();
-        // Translate to center of tempCanvas.
-        tempCtx.translate(sensorWidth/2, sensorHeight/2);
-        // Rotate by -angle to undo car rotation.
-        tempCtx.rotate(-angle);
-        // Translate so that sensor center aligns with tempCanvas center.
-        tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
-        tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
-        tempCtx.restore();
-        
-        // Sample sensor data.
-        let sensorData;
-        try {
-          sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
-        } catch (e) {
-          console.error("Error extracting sensor data:", e);
-          sensorData = null;
-        }
-        let sum = 0, count = 0;
-        if (sensorData) {
-          const data = sensorData.data;
-          for (let i = 0; i < data.length; i += 4) {
-            sum += (data[i] + data[i+1] + data[i+2]) / 3;
-            count++;
+
+    // --- Move the car along the outline ---
+    if (currentIndex < points.length) {
+      let target = createVector(points[currentIndex].x, points[currentIndex].y);
+      let toTarget = p5.Vector.sub(target, currentPos);
+      if (toTarget.mag() < speed) {
+        // Snap to target and advance.
+        currentPos = target.copy();
+        currentIndex++;
+        // Add this reached (original) point to the permanent trace.
+        permanentTrace.push(currentPos.copy());
+      } else {
+        toTarget.normalize();
+        currentPos.add(p5.Vector.mult(toTarget, speed));
+      }
+    }
+
+    // --- Draw the permanent neon trace ---
+    // Draw individual neon circles at the reached original points.
+    stroke(COLORS.neon);
+    strokeWeight(4);
+    noFill();
+    drawingContext.shadowBlur = 5;
+    drawingContext.shadowColor = COLORS.neon;
+    for (let pt of permanentTrace) {
+      ellipse(pt.x, pt.y, 8, 8);
+    }
+    drawingContext.shadowBlur = 0; // Reset shadow blur
+
+    // --- Draw the car (robot) using the Car SVG ---
+    if (currentIndex < points.length) {
+      let nextTarget = createVector(points[currentIndex].x, points[currentIndex].y);
+      let velocity = p5.Vector.sub(nextTarget, currentPos);
+      let angle = 0;
+      if (velocity.mag() > 0) {
+        angle = atan2(velocity.y, velocity.x);
+      }
+      push();
+        translate(currentPos.x, currentPos.y);
+        // The car SVG was originally drawn facing upward; rotate by PI/2.
+        rotate(angle + PI/2);
+        scale(carScale);
+        tint(COLORS.carTint);
+        image(carImg, 0, 0);
+      pop();
+    }
+
+    // --- Typewriter Effect for Description Text ---
+    if (currentDescriptionIndex < descriptionArray.length) {
+      if (!isPaused) {
+        typeTimer++;
+        if (typeTimer > typeDelay) {
+          typeTimer = 0;
+          currentLetterIndex++;
+          if (currentLetterIndex > descriptionArray[currentDescriptionIndex].length) {
+            isPaused = true;
+            pauseTimer = 0;
           }
         }
-        const avgBrightness = count ? sum / count : 0;
-        console.log("Sensor brightness:", avgBrightness);
-        racer.sensor_val = avgBrightness;
-        
-        // --- Draw Sensor Picture-in-Picture (PIP) ---
-        const scaleFactor = 5;
-        const pipWidth = sensorWidth * scaleFactor;
-        const pipHeight = sensorHeight * scaleFactor;
-        const pipX = canvas.width - pipWidth - 10;
-        const pipY = 10;
-        ctx.strokeStyle = "red";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
-        ctx.drawImage(tempCanvas, pipX, pipY, pipWidth, pipHeight);
-        
-        // --- Draw Sensor and Power Text ---
-        ctx.font = "14px Arial";
-        ctx.fillStyle = "black";
-        ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
-        ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
-        
-        // --- Run User-Controlled Code, if defined ---
-        if (pyodide.globals.get("racer_control")) {
-          pyodide.runPython("racer_control()");
+      } else {
+        pauseTimer++;
+        if (pauseTimer > pauseDelay) {
+          currentDescriptionIndex++;
+          currentLetterIndex = 0;
+          isPaused = false;
+          typeTimer = 0;
         }
-        
-        requestAnimationFrame(animate);
       }
-      requestAnimationFrame(animate);
-      
-      // Hook up the "Run Code" button.
-      document.getElementById("run-code").addEventListener("click", async () => {
-        const code = editor.getValue();
-        try {
-          await pyodide.runPythonAsync(code);
-        } catch (err) {
-          console.error("Python Error:", err);
-          alert("Python Error:\n" + err);
-        }
-      });
     }
-    main();
-  </script>
+    let displayedText = "";
+    if (currentDescriptionIndex < descriptionArray.length) {
+      displayedText = descriptionArray[currentDescriptionIndex].substring(0, currentLetterIndex);
+    }
+    push();
+      resetMatrix();  // Reset transformations so text is drawn in screen coordinates.
+      textAlign(CENTER, CENTER);
+      textSize(14);
+      fill("grey");
+      noStroke();
+      drawingContext.shadowBlur = 0;  // No shadow for text
+      text(displayedText, width/2, height * 0.8);
+    pop();
+  }
+
+  // ===============================
+  // windowResized(): Adjust canvas size if the window is resized.
+  // ===============================
+  function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+  }
+
+  // ===============================
+  // Typewriter Effect Global Variables
+  // ===============================
+  let descriptionArray = [
+    "PyBot's is an interactive way to learn coding and science concepts.",
+    "Learn concepts like handling basic variables in Python.",
+    "Learn how to build different controllers from the field of control-theory.",
+    "Learn how to estimate the efficiency of your system.",
+    "Challenge your friends to see who has the best build."
+  ];
+  let currentDescriptionIndex = 0;
+  let currentLetterIndex = 0;
+  let typeTimer = 0;
+  let pauseTimer = 0;
+  let isPaused = false;
+  const typeDelay = 3;    // Frames between each letter
+  const pauseDelay = 60;  // Frames to pause after finishing a description
+
+  // ------------------------------
+  // Add event listener to the "Get Started" button.
+  // ------------------------------
+  document.getElementById('getStarted').addEventListener('click', function() {
+    window.location.href = "play.html";
+  });
+</script>
 </body>
 </html>
