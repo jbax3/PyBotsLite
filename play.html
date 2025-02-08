@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PyBots</title>
+  <!-- CodeMirror CSS and Dracula Theme -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/dracula.min.css">
+  <!-- CodeMirror hint CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.css">
+  <style>
+    /* Overall dark theme styling */
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background-color: #121212;
+      color: #EEE;
+      display: flex;
+      height: 100vh;
+    }
+    /* Left column: Code editor */
+    #editor {
+      width: 30%;
+      padding: 10px;
+      background-color: #1e1e1e;
+      border-right: 1px solid #333;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+    }
+    #editor h3, #editor p, #editor pre {
+      margin: 0 0 5px 0;
+      color: #EEE;
+    }
+    /* CodeMirror: use 70% height and 100% width; do not force a relative line-height */
+    .CodeMirror {
+      height: 70%;
+      width: 100%;
+      background-color: #1e1e1e;
+/*      font-size: 14px;*/
+    }
+    /* Force a fixed line-height for the CodeMirror lines to sync the cursor and text.
+       Adjust 20px as needed. */
+    .CodeMirror-lines {
+/*      line-height: 20px !important;*/
+    }
+    .CodeMirror-scroll {
+/*      line-height: 20px !important;*/
+    }
+    button {
+      font-size: 16px;
+      padding: 5px 10px;
+      margin-top: 10px;
+      background-color: #333;
+      color: #EEE;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #444;
+    }
+    /* Right column: Canvas and Console */
+    #canvas-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background-color: #121212;
+    }
+    canvas {
+      flex: 1;
+      border: 1px solid #444;
+      background-color: #1e1e1e;
+      display: block;
+      margin: auto;
+    }
+    /* Console area below canvas */
+    #console {
+      height: 150px;
+      overflow-y: auto;
+      background-color: #000;
+      color: #0F0;
+      font-family: monospace;
+      padding: 5px;
+      border-top: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <!-- Left: Code Editor -->
+  <div id="editor">
+      <h3>PyBots</h3>
+      <p>A little game for playing around with a robot.</p>
+      <p>Enter your control code (for example, a bang–bang controller):</p>
+    <pre>
+def racer_control():
+    if racer.sensor_val > 150:
+        racer.left_motor_speed = 1
+        racer.right_motor_speed = 3
+    else:
+        racer.left_motor_speed = 3
+        racer.right_motor_speed = 1
+    </pre>
+    <!-- The textarea will be replaced by CodeMirror -->
+    <textarea id="code-input" placeholder="Enter your control code here"></textarea>
+    <button id="run-code">Run Code</button>
+  </div>
+
+  <!-- Right: Canvas and Console -->
+  <div id="canvas-container">
+    <canvas id="simCanvas" width="800" height="600"></canvas>
+    <div id="console"></div>
+  </div>
+
+  <!-- Load CodeMirror Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/python/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.js"></script>
+
+  <!-- Load Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+  <script>
+    // Initialize CodeMirror on the textarea with autocomplete.
+    const editor = CodeMirror.fromTextArea(document.getElementById("code-input"), {
+      lineNumbers: true,
+      mode: "python",
+      theme: "dracula",
+      extraKeys: {
+        "Ctrl-Space": "autocomplete",
+        "Tab": "autocomplete" // Use Tab to trigger autocomplete.
+      },
+      hintOptions: { completeSingle: false }
+    });
+    // We removed auto-trigger on input so the cursor stays in sync.
+
+    // Custom autocomplete helper based on the racer object.
+    let racerCompletions = [];
+    function racerHint(cm, options) {
+      const cursor = cm.getCursor();
+      const token = cm.getTokenAt(cursor);
+      const start = token.start, end = cursor.ch, word = token.string;
+      const list = racerCompletions.filter(item => item.startsWith(word));
+      return { list: list, from: CodeMirror.Pos(cursor.line, start), to: CodeMirror.Pos(cursor.line, end) };
+    }
+    CodeMirror.registerHelper("hint", "python", racerHint);
+
+    async function main() {
+      // Load Pyodide.
+      const pyodide = await loadPyodide();
+
+      // Redirect Python stdout/stderr to our on-page console.
+      await pyodide.runPythonAsync(`
+import sys
+from js import document
+class DOMConsole:
+    def __init__(self):
+        self.atBeginning = True
+    def write(self, s):
+        console = document.getElementById("console")
+        lines = s.split("\\n")
+        for i, line in enumerate(lines):
+            if i == 0:
+                if self.atBeginning and line:
+                    console.innerText += "> " + line
+                else:
+                    console.innerText += line
+            else:
+                console.innerText += "\\n> " + line
+        if s.endswith("\\n"):
+            self.atBeginning = True
+        else:
+            self.atBeginning = False
+        console.scrollTop = console.scrollHeight
+    def flush(self):
+        pass
+sys.stdout = DOMConsole()
+sys.stderr = DOMConsole()
+      `);
+
+      // Load simulation code.
+      const response = await fetch('racer.py');
+      const racerCode = await response.text();
+      await pyodide.runPythonAsync(racerCode);
+      const racer = pyodide.globals.get("racer");
+
+      // Obtain a list of public attributes/methods from racer.
+      let racerCompletionsString = pyodide.runPython(
+        '",".join([s for s in dir(racer) if not s.startswith("__")])'
+      );
+      racerCompletions = racerCompletionsString.split(",");
+
+      // Set up the main canvas.
+      const canvas = document.getElementById("simCanvas");
+      const ctx = canvas.getContext("2d");
+
+      // Load the background map and car images.
+      const backgroundMap = new Image();
+      backgroundMap.src = "Robot_Racer_Path_new.svg";
+      const carImage = new Image();
+      carImage.src = "Robot_new.svg";
+
+      // Create an offscreen canvas for the background.
+      const offscreenBg = document.createElement('canvas');
+      offscreenBg.width = canvas.width;
+      offscreenBg.height = canvas.height;
+      const offscreenBgCtx = offscreenBg.getContext("2d");
+      backgroundMap.onload = () => {
+        offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
+      };
+
+      let lastTime = performance.now();
+      function animate(time) {
+        const dt = (time - lastTime) / 1000;
+        lastTime = time;
+
+        // Advance simulation.
+        racer.update(dt);
+
+        // Retrieve simulation state.
+        const x = Number(racer.x);
+        const y = Number(racer.y);
+        const angle = Number(racer.angle);
+        const carWidth = Number(racer.racer_width);
+        const carHeight = Number(racer.racer_height);
+        const sensorWidth = Number(racer.sensor_width);
+        const sensorHeight = Number(racer.sensor_height);
+
+        // --- Collision Detection ---
+        const bt = 10;  // border thickness
+        const rw = carWidth / 2;
+        const rh = carHeight / 2;
+        const x1 = bt + rw;
+        const x2 = canvas.width - bt - rw;
+        const y1 = bt + rh;
+        const y2 = canvas.height - bt - rh;
+        if (x < x1 || x > x2 || y < y1 || y > y2) {
+          racer.apply_power(0, 0);
+        }
+
+        // --- Compute Sensor Box World Coordinates ---
+        // In car coordinates, sensor box's top-left is at:
+        // (-sensorWidth/2, -carHeight/2 - sensorHeight)
+        // Its center is at (0, -carHeight/2 - sensorHeight/2).
+        const sensorCenterWorldX = x + ((carHeight/2 + sensorHeight/2) * Math.sin(angle));
+        const sensorCenterWorldY = y - ((carHeight/2 + sensorHeight/2) * Math.cos(angle));
+        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
+        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
+
+        // --- Draw the Scene ---
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (backgroundMap.complete) {
+          ctx.drawImage(backgroundMap, 0, 0, canvas.width, canvas.height);
+        }
+        if (carImage.complete) {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(angle);
+          ctx.drawImage(carImage, -carWidth/2, -carHeight/2, carWidth, carHeight);
+          ctx.restore();
+        }
+
+        // --- Draw Sensor Box (Flush with Car Front) ---
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        ctx.strokeStyle = "purple";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
+        ctx.restore();
+
+        // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
+        // Create a temporary canvas to "unrotate" the sensor region.
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = sensorWidth;
+        tempCanvas.height = sensorHeight;
+        const tempCtx = tempCanvas.getContext("2d");
+        tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
+        tempCtx.save();
+        // Translate to the center of tempCanvas.
+        tempCtx.translate(sensorWidth/2, sensorHeight/2);
+        // Rotate by -angle to undo the car's rotation.
+        tempCtx.rotate(-angle);
+        // Translate so that sensor center in world coordinates aligns with tempCanvas center.
+        tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
+        tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
+        tempCtx.restore();
+
+        // Now sample sensor data from tempCanvas.
+        let sensorData;
+        try {
+          sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
+        } catch (e) {
+          console.error("Error extracting sensor data:", e);
+          sensorData = null;
+        }
+        let sum = 0, count = 0;
+        if (sensorData) {
+          const data = sensorData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            sum += (data[i] + data[i+1] + data[i+2]) / 3;
+            count++;
+          }
+        }
+        const avgBrightness = count ? sum / count : 0;
+        console.log("Sensor brightness:", avgBrightness);
+        racer.sensor_val = avgBrightness;
+
+        // --- Draw Sensor Picture-in-Picture (PIP) ---
+        const scaleFactor = 5;
+        const pipWidth = sensorWidth * scaleFactor;
+        const pipHeight = sensorHeight * scaleFactor;
+        const pipX = canvas.width - pipWidth - 10;
+        const pipY = 10;
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
+        ctx.drawImage(tempCanvas, pipX, pipY, pipWidth, pipHeight);
+
+        // --- Draw Sensor and Power Text ---
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "purple";
+        ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
+        ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
+
+        // --- Run User-Controlled Code, if defined ---
+        if (pyodide.globals.get("racer_control")) {
+          pyodide.runPython("racer_control()");
+        }
+
+        requestAnimationFrame(animate);
+      }
+      requestAnimationFrame(animate);
+
+      // Hook up the "Run Code" button.
+      document.getElementById("run-code").addEventListener("click", async () => {
+        const code = editor.getValue();
+        try {
+          await pyodide.runPythonAsync(code);
+        } catch (err) {
+          console.error("Python Error:", err);
+          alert("Python Error:\n" + err);
+        }
+      });
+    }
+    main();
+  </script>
+</body>
+</html>
