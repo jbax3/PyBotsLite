@@ -1,0 +1,75 @@
+/*!
+  Theme: Custom Dark
+  Description: Custom dark theme for highlight.js
+  License: MIT
+*/
+
+pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+}
+
+code.hljs {
+  padding: 3px 5px;
+}
+
+.hljs {
+  background: #282a36;
+  color: #f8f8f2;
+}
+
+/* Function names */
+.hljs-title.function_ {
+  color: #50fa7b;
+}
+
+/* Keywords like def, if, else */
+.hljs-keyword {
+  color: #ff79c6;
+}
+
+/* Base object name (racer) */
+.hljs-name,
+.hljs-variable:not(.hljs-property):not(.hljs-title) {
+  color: #50fa7b;
+}
+
+/* Property access (sensor_val, left_motor_speed, etc) */
+.hljs-property,
+.hljs-title.property,
+.hljs-variable.property {
+  color: #8be9fd;
+}
+
+/* Numbers/values */
+.hljs-number {
+  color: #bd93f9;
+}
+
+/* Operators */
+.hljs-operator {
+  color: #ff79c6;
+}
+
+/* Function definition */
+.hljs-function .hljs-title {
+  color: #50fa7b;
+}
+
+/* Object properties when accessed with dot notation */
+.hljs-selector-class,
+.hljs-property-access {
+  color: #8be9fd;
+}
+
+/* Make sure the base object stays green even in property access */
+.hljs-object {
+  color: #50fa7b !important;
+}
+
+/* Property parts in dot notation */
+.hljs-title.property,
+.hljs-property {
+  color: #8be9fd !important;
+}

@@ -8,44 +8,67 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/dracula.min.css">
   <!-- CodeMirror hint CSS -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/addon/hint/show-hint.min.css">
+
+
   <style>
     /* Overall dark theme styling */
     body {
       margin: 0;
       font-family: sans-serif;
       background-color: #121212;
-      color: #EEE;
       display: flex;
       height: 100vh;
+      overflow: hidden;
     }
     /* Left column: Code editor */
     #editor {
-      width: 30%;
+      flex: 0 0 30%;
+      min-width: 200px;
+      height: 100vh;
       padding: 10px;
       background-color: #1e1e1e;
       border-right: 1px solid #333;
       box-sizing: border-box;
       display: flex;
       flex-direction: column;
+      font-size: 14px;
     }
-    #editor h3, #editor p, #editor pre {
+    #editor h3,
+    #editor p {
       margin: 0 0 5px 0;
       color: #EEE;
     }
-    /* CodeMirror: use 70% height and 100% width; do not force a relative line-height */
+    /* Style for the pre/code block */
+    #editor pre {
+      margin: 0 0 5px 0;
+    }
+    pre code {
+      padding: 1em;
+      border-radius: 4px;
+      display: block;
+    }
+    /* CodeMirror container */
     .CodeMirror {
       height: 70%;
       width: 100%;
       background-color: #1e1e1e;
-/*      font-size: 14px;*/
-    }
-    /* Force a fixed line-height for the CodeMirror lines to sync the cursor and text.
-       Adjust 20px as needed. */
-    .CodeMirror-lines {
-/*      line-height: 20px !important;*/
+      font-size: 14px;  /* default font size */
+      overflow-x: hidden;
+      margin: 0;
+      padding: 0;
     }
     .CodeMirror-scroll {
-/*      line-height: 20px !important;*/
+      overflow-x: hidden !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+    /* Draggable divider/resizer */
+    #resizer {
+      width: 5px;
+      background-color: #444;
+      cursor: ew-resize;
+      height: 100vh;
+      flex-shrink: 0;
     }
     button {
       font-size: 16px;
@@ -62,19 +85,23 @@
     /* Right column: Canvas and Console */
     #canvas-container {
       flex: 1;
+      height: 100vh;
       display: flex;
       flex-direction: column;
       background-color: #121212;
+      box-sizing: border-box;
+      align-items: center;  /* center the canvas horizontally */
+      justify-content: center; /* center vertically if desired */
     }
-    canvas {
-      flex: 1;
-      border: 1px solid #444;
-      background-color: #1e1e1e;
+    /* The canvas will be set to 90% of available right-pane width */
+    #simCanvas {
       display: block;
-      margin: auto;
+      /* margin: auto; already centered via container flex */
+      height: auto;
     }
     /* Console area below canvas */
     #console {
+      width: 100%;
       height: 150px;
       overflow-y: auto;
       background-color: #000;
@@ -82,30 +109,33 @@
       font-family: monospace;
       padding: 5px;
       border-top: 1px solid #333;
+      box-sizing: border-box;
     }
   </style>
 </head>
 <body>
-  <!-- Left: Code Editor -->
+  <!-- Left: Code Editor Pane -->
   <div id="editor">
-      <h3>PyBots</h3>
-      <p>A little game for playing around with a robot.</p>
-      <p>Enter your control code (for example, a bang–bang controller):</p>
-    <pre>
-def racer_control():
+    <h3>PyBots</h3>
+    <p>A little game for playing around with a robot.</p>
+    <p>Enter your control code (for example, a bang–bang controller):</p>
+    <!-- Code block for Highlight.js (no extra indentation) -->
+    <pre><code class="language-python">def racer_control():
     if racer.sensor_val > 150:
         racer.left_motor_speed = 1
         racer.right_motor_speed = 3
     else:
         racer.left_motor_speed = 3
-        racer.right_motor_speed = 1
-    </pre>
+        racer.right_motor_speed = 1</code></pre>
     <!-- The textarea will be replaced by CodeMirror -->
     <textarea id="code-input" placeholder="Enter your control code here"></textarea>
     <button id="run-code">Run Code</button>
   </div>
-
-  <!-- Right: Canvas and Console -->
+  
+  <!-- Divider/Resizer -->
+  <div id="resizer"></div>
+  
+  <!-- Right: Canvas and Console Pane -->
   <div id="canvas-container">
     <canvas id="simCanvas" width="800" height="600"></canvas>
     <div id="console"></div>
@@ -119,35 +149,90 @@ def racer_control():
   <!-- Load Pyodide -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
   <script>
-    // Initialize CodeMirror on the textarea with autocomplete.
+    // Initialize CodeMirror on the textarea.
     const editor = CodeMirror.fromTextArea(document.getElementById("code-input"), {
       lineNumbers: true,
       mode: "python",
       theme: "dracula",
-      extraKeys: {
-        "Ctrl-Space": "autocomplete",
-        "Tab": "autocomplete" // Use Tab to trigger autocomplete.
-      },
+      lineWrapping: false, // disable line wrapping
+      extraKeys: { "Ctrl-Space": "autocomplete" },
       hintOptions: { completeSingle: false }
     });
-    // We removed auto-trigger on input so the cursor stays in sync.
 
-    // Custom autocomplete helper based on the racer object.
+    // --- Dynamic Font-Size Adjustment for CodeMirror ---
+    const defaultFontSize = 14;
+    let currentFontSize = defaultFontSize;
+    
+    function adjustFontSize(cm) {
+      const containerWidth = cm.getWrapperElement().clientWidth - 10;
+      const tempCanvas = document.createElement('canvas');
+      const ctx = tempCanvas.getContext('2d');
+      ctx.font = currentFontSize + "px monospace";
+      
+      let maxLineWidth = 0;
+      const lines = cm.lineCount();
+      for (let i = 0; i < lines; i++) {
+        const lineWidth = ctx.measureText(cm.getLine(i)).width;
+        if (lineWidth > maxLineWidth) maxLineWidth = lineWidth;
+      }
+      
+      let newFontSize = defaultFontSize;
+      if (maxLineWidth > containerWidth) {
+        newFontSize = defaultFontSize * (containerWidth / maxLineWidth);
+      }
+      
+      if (Math.abs(newFontSize - currentFontSize) > 0.5) {
+        currentFontSize = newFontSize;
+        cm.getWrapperElement().style.fontSize = currentFontSize + "px";
+        cm.refresh();
+      }
+    }
+    
+    setTimeout(() => { adjustFontSize(editor); }, 100);
+    editor.on("change", cm => { adjustFontSize(cm); });
+    editor.on("inputRead", cm => { adjustFontSize(cm); });
+    editor.on("cursorActivity", cm => { adjustFontSize(cm); });
+    window.addEventListener("resize", () => { adjustFontSize(editor); });
+
+    // --- Update the Canvas Size During Drag ---
+    // This function computes the available width for the right pane and sets the canvas
+    // dimensions to 90% of that available width (maintaining a 800:600 aspect ratio).
+    function updateCanvasDuringDrag() {
+      const editorRect = editor.getWrapperElement().getBoundingClientRect();
+      const resizerRect = document.getElementById("resizer").getBoundingClientRect();
+      const availableWidth = window.innerWidth - editorRect.width - resizerRect.width;
+      const newWidth = availableWidth * 0.9; // canvas is 10% smaller than full available width
+      const newHeight = newWidth * (600 / 800);
+      const canvas = document.getElementById("simCanvas");
+      canvas.style.width = newWidth + "px";
+      canvas.style.height = newHeight + "px";
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+    }
+    
+    // Use a ResizeObserver on the canvas container.
+    if (window.ResizeObserver) {
+      const observer = new ResizeObserver(() => { updateCanvasDuringDrag(); });
+      observer.observe(document.getElementById("canvas-container"));
+    } else {
+      window.addEventListener("resize", updateCanvasDuringDrag);
+    }
+    
+    // Initial canvas sizing.
+    updateCanvasDuringDrag();
+
+    // --- Custom Autocomplete Helper (racer completions) ---
     let racerCompletions = [];
     function racerHint(cm, options) {
       const cursor = cm.getCursor();
       const token = cm.getTokenAt(cursor);
-      const start = token.start, end = cursor.ch, word = token.string;
-      const list = racerCompletions.filter(item => item.startsWith(word));
-      return { list: list, from: CodeMirror.Pos(cursor.line, start), to: CodeMirror.Pos(cursor.line, end) };
+      const list = racerCompletions.filter(item => item.startsWith(token.string));
+      return { list: list, from: CodeMirror.Pos(cursor.line, token.start), to: CodeMirror.Pos(cursor.line, cursor.ch) };
     }
     CodeMirror.registerHelper("hint", "python", racerHint);
-
+    
     async function main() {
-      // Load Pyodide.
       const pyodide = await loadPyodide();
-
-      // Redirect Python stdout/stderr to our on-page console.
       await pyodide.runPythonAsync(`
 import sys
 from js import document
@@ -156,49 +241,38 @@ class DOMConsole:
         self.atBeginning = True
     def write(self, s):
         console = document.getElementById("console")
-        lines = s.split("\\n")
-        for i, line in enumerate(lines):
-            if i == 0:
-                if self.atBeginning and line:
-                    console.innerText += "> " + line
-                else:
-                    console.innerText += line
+        for line in s.split("\\n"):
+            if self.atBeginning and line:
+                console.innerText += "> " + line + "\\n"
             else:
-                console.innerText += "\\n> " + line
-        if s.endswith("\\n"):
-            self.atBeginning = True
-        else:
-            self.atBeginning = False
+                console.innerText += line + "\\n"
+            self.atBeginning = line.endswith("\\n")
         console.scrollTop = console.scrollHeight
     def flush(self):
         pass
 sys.stdout = DOMConsole()
 sys.stderr = DOMConsole()
       `);
-
-      // Load simulation code.
+    
       const response = await fetch('racer.py');
       const racerCode = await response.text();
       await pyodide.runPythonAsync(racerCode);
       const racer = pyodide.globals.get("racer");
-
-      // Obtain a list of public attributes/methods from racer.
-      let racerCompletionsString = pyodide.runPython(
-        '",".join([s for s in dir(racer) if not s.startswith("__")])'
-      );
+    
+      let racerCompletionsString = pyodide.runPython('",".join([s for s in dir(racer) if not s.startswith("__")])');
       racerCompletions = racerCompletionsString.split(",");
-
-      // Set up the main canvas.
+    
       const canvas = document.getElementById("simCanvas");
       const ctx = canvas.getContext("2d");
-
-      // Load the background map and car images.
+    
       const backgroundMap = new Image();
       backgroundMap.src = "Robot_Racer_Path_new.svg";
       const carImage = new Image();
       carImage.src = "Robot_new.svg";
-
-      // Create an offscreen canvas for the background.
+    
+      // Default dimensions for the SVG if not provided.
+      const defaultImgWidth = 800, defaultImgHeight = 600;
+      
       const offscreenBg = document.createElement('canvas');
       offscreenBg.width = canvas.width;
       offscreenBg.height = canvas.height;
@@ -206,16 +280,14 @@ sys.stderr = DOMConsole()
       backgroundMap.onload = () => {
         offscreenBgCtx.drawImage(backgroundMap, 0, 0, offscreenBg.width, offscreenBg.height);
       };
-
+    
       let lastTime = performance.now();
       function animate(time) {
         const dt = (time - lastTime) / 1000;
         lastTime = time;
-
-        // Advance simulation.
+    
         racer.update(dt);
-
-        // Retrieve simulation state.
+    
         const x = Number(racer.x);
         const y = Number(racer.y);
         const angle = Number(racer.angle);
@@ -223,9 +295,8 @@ sys.stderr = DOMConsole()
         const carHeight = Number(racer.racer_height);
         const sensorWidth = Number(racer.sensor_width);
         const sensorHeight = Number(racer.sensor_height);
-
-        // --- Collision Detection ---
-        const bt = 10;  // border thickness
+    
+        const bt = 10;
         const rw = carWidth / 2;
         const rh = carHeight / 2;
         const x1 = bt + rw;
@@ -235,21 +306,13 @@ sys.stderr = DOMConsole()
         if (x < x1 || x > x2 || y < y1 || y > y2) {
           racer.apply_power(0, 0);
         }
-
-        // --- Compute Sensor Box World Coordinates ---
-        // In car coordinates, sensor box's top-left is at:
-        // (-sensorWidth/2, -carHeight/2 - sensorHeight)
-        // Its center is at (0, -carHeight/2 - sensorHeight/2).
-        const sensorCenterWorldX = x + ((carHeight/2 + sensorHeight/2) * Math.sin(angle));
-        const sensorCenterWorldY = y - ((carHeight/2 + sensorHeight/2) * Math.cos(angle));
-        const sensorBoxWorldX = sensorCenterWorldX - sensorWidth / 2;
-        const sensorBoxWorldY = sensorCenterWorldY - sensorHeight / 2;
-
-        // --- Draw the Scene ---
+    
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Draw the background image to fill the canvas.
         if (backgroundMap.complete) {
           ctx.drawImage(backgroundMap, 0, 0, canvas.width, canvas.height);
         }
+    
         if (carImage.complete) {
           ctx.save();
           ctx.translate(x, y);
@@ -257,8 +320,7 @@ sys.stderr = DOMConsole()
           ctx.drawImage(carImage, -carWidth/2, -carHeight/2, carWidth, carHeight);
           ctx.restore();
         }
-
-        // --- Draw Sensor Box (Flush with Car Front) ---
+    
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(angle);
@@ -266,25 +328,20 @@ sys.stderr = DOMConsole()
         ctx.lineWidth = 2;
         ctx.strokeRect(-sensorWidth/2, -carHeight/2 - sensorHeight, sensorWidth, sensorHeight);
         ctx.restore();
-
-        // --- Extract Sensor Image for Picture-in-Picture (PIP) ---
-        // Create a temporary canvas to "unrotate" the sensor region.
+    
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = sensorWidth;
         tempCanvas.height = sensorHeight;
         const tempCtx = tempCanvas.getContext("2d");
         tempCtx.clearRect(0, 0, sensorWidth, sensorHeight);
         tempCtx.save();
-        // Translate to the center of tempCanvas.
         tempCtx.translate(sensorWidth/2, sensorHeight/2);
-        // Rotate by -angle to undo the car's rotation.
         tempCtx.rotate(-angle);
-        // Translate so that sensor center in world coordinates aligns with tempCanvas center.
-        tempCtx.translate(-sensorCenterWorldX, -sensorCenterWorldY);
+        tempCtx.translate(- (x + ((carHeight/2+sensorHeight/2)*Math.sin(angle))),
+                           - (y - ((carHeight/2+sensorHeight/2)*Math.cos(angle))));
         tempCtx.drawImage(offscreenBg, 0, 0, offscreenBg.width, offscreenBg.height);
         tempCtx.restore();
-
-        // Now sample sensor data from tempCanvas.
+    
         let sensorData;
         try {
           sensorData = tempCtx.getImageData(0, 0, sensorWidth, sensorHeight);
@@ -303,8 +360,7 @@ sys.stderr = DOMConsole()
         const avgBrightness = count ? sum / count : 0;
         console.log("Sensor brightness:", avgBrightness);
         racer.sensor_val = avgBrightness;
-
-        // --- Draw Sensor Picture-in-Picture (PIP) ---
+    
         const scaleFactor = 5;
         const pipWidth = sensorWidth * scaleFactor;
         const pipHeight = sensorHeight * scaleFactor;
@@ -314,23 +370,20 @@ sys.stderr = DOMConsole()
         ctx.lineWidth = 2;
         ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
         ctx.drawImage(tempCanvas, pipX, pipY, pipWidth, pipHeight);
-
-        // --- Draw Sensor and Power Text ---
+    
         ctx.font = "14px Arial";
         ctx.fillStyle = "purple";
         ctx.fillText(`Sensor: ${avgBrightness.toFixed(2)}`, pipX, pipY + pipHeight + 20);
         ctx.fillText(`Power: ${Number(racer.power_consumed).toFixed(2)}`, pipX, pipY + pipHeight + 40);
-
-        // --- Run User-Controlled Code, if defined ---
+    
         if (pyodide.globals.get("racer_control")) {
           pyodide.runPython("racer_control()");
         }
-
+    
         requestAnimationFrame(animate);
       }
       requestAnimationFrame(animate);
-
-      // Hook up the "Run Code" button.
+    
       document.getElementById("run-code").addEventListener("click", async () => {
         const code = editor.getValue();
         try {
@@ -342,6 +395,39 @@ sys.stderr = DOMConsole()
       });
     }
     main();
+    
+    // --- Resizer (Draggable Divider) ---
+    const resizer = document.getElementById('resizer');
+    const editorElem = document.getElementById('editor');
+    
+    resizer.addEventListener('mousedown', initDrag);
+    function initDrag(e) {
+      e.preventDefault();
+      window.addEventListener('mousemove', doDrag);
+      window.addEventListener('mouseup', stopDrag);
+    }
+    function doDrag(e) {
+      let newWidth = e.clientX;
+      if (newWidth < 200) newWidth = 200;
+      editorElem.style.flex = '0 0 ' + newWidth + 'px';
+      editor.refresh();
+      // Update the canvas size based on the available right-pane space.
+      updateCanvasDuringDrag();
+    }
+    function stopDrag(e) {
+      window.removeEventListener('mousemove', doDrag);
+      window.removeEventListener('mouseup', stopDrag);
+    }
   </script>
+  <link rel="stylesheet" href="dracula.min.css">
+  <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css"> -->
+  <link rel="stylesheet" href="https://raw.githubusercontent.com/dracula/highlightjs/refs/heads/master/dracula.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- and it's easy to individually load additional languages -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+
+  <script>hljs.highlightAll();</script>
+
 </body>
 </html>
