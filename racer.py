@@ -101,3 +101,9 @@ class Racer:
 
 # Create a global racer instance.
 racer = Racer()
+
+def move_forward():
+    racer.move_forward()
+
+
+print("Welcome to PyBots!")

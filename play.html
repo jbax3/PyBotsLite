@@ -254,7 +254,7 @@ sys.stdout = DOMConsole()
 sys.stderr = DOMConsole()
       `);
     
-      const response = await fetch('racer.py');
+      const response = await fetch('racer.py?ts=' + Date.now());
       const racerCode = await response.text();
       await pyodide.runPythonAsync(racerCode);
       const racer = pyodide.globals.get("racer");

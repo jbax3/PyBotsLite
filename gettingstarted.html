@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Getting Started with Car Animation</title>
+  <!-- p5.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <!-- Marked.js (for Markdown conversion) -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Highlight.js for code block highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/dracula.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    /* Overall dark theme styling */
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      background-color: #282a36;
+      color: #EEE;
+    }
+    /* Header image styling */
+    #header {
+      width: 100%;
+      text-align: center;
+      margin-top: 20px;
+    }
+    #header img {
+      width: 40%;
+      display: inline-block;
+      margin-bottom: -3%;
+      padding-top: 3%;
+    }
+    /* Markdown content container */
+    #content {
+      position: relative;
+      z-index: 1; /* Sits above the canvas */
+      max-width: 800px;
+      margin: 10px auto 10px auto;
+      padding: -20px;
+      background: rgba(40,42,54,0.8);
+      border-radius: 8px;
+    }
+    /* Basic typography */
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1em;
+    }
+    a {
+      color: #8be9fd;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    pre {
+      background-color: #44475a;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    code {
+      background-color: #44475a;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+    /* "Jump in!" button style */
+    button#getStarted {
+      position: fixed;
+      bottom: 40px;
+      right: 40px;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #8be9fd;
+      color: #282a36;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header image -->
+  <div id="header">
+    <img src="PyBots.svg" alt="PyBots Logo">
+  </div>
+  
+  <!-- Markdown content container -->
+  <div id="content">
+    <p>Loading content...</p>
+  </div>
+  
+  <!-- "Jump in!" button -->
+  <button id="getStarted">Let's go!</button>
+  
+  <!-- Markdown conversion and header color rotation script -->
+  <script>
+    // Configure Marked.js to use Highlight.js for code blocks.
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        } else {
+          return hljs.highlightAuto(code).value;
+        }
+      }
+    });
+    
+    // Fetch the Markdown file (cache disabled) and insert it into the page.
+    fetch('gettingstarted.md', { cache: "no-store" })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error("Network error: " + response.statusText);
+        }
+        return response.text();
+      })
+      .then(markdown => {
+        const html = marked.parse(markdown);
+        document.getElementById('content').innerHTML = html;
+        // Log the first heading to help diagnose if it’s missing.
+        console.log("First heading:", document.querySelector("#content h1"));
+        // Apply a rotating color palette to all headings.
+        const headerColors = [
+          "#6272a4", // Comment
+          "#8be9fd", // Cyan
+          "#50fa7b", // Green
+          "#ffb86c", // Orange
+          "#ff79c6", // Pink
+          "#bd93f9", // Purple
+          "#ff5555", // Red
+          "#f1fa8c"  // Yellow
+        ];
+        const headers = document.querySelectorAll(
+          '#content h1, #content h2, #content h3, #content h4, #content h5, #content h6'
+        );
+        headers.forEach((header, index) => {
+          header.style.color = headerColors[index % headerColors.length];
+        });
+      })
+      .catch(error => {
+        console.error("Error loading markdown:", error);
+        document.getElementById('content').innerHTML = "<p>Error loading content.</p>";
+      });
+    
+    // "Jump in!" button: adjust URL or behavior as needed.
+    document.getElementById('getStarted').addEventListener('click', function() {
+      window.location.href = "play.html";
+    });
+  </script>
+  
+  <!-- p5.js sketch: Car animation with a fading blue trace -->
+  <script>
+    let carImg;
+    let corners = [];
+    let currentPos;
+    let currentTargetIndex = 0;
+    let speed = 3;
+    let carScale = 0.5;
+    let margin = 20;
+    let trace = []; // Array to store past positions
+
+    // Car SVG string (provided)
+    const carSVGString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 47 71">
+      <!-- Body -->
+      <path d="M 10,305.5 v -6.2 l 1.3,-3.2 12.2,-1.6 12,1.6 1.3,3.2 v 6.6 2.3 5.9 l 1.3,8.2 v 21.6 l -1.3,3.3 v 6.2 2.3 6.1 H 23.5 10.1 l -0.1,-0.4 c -0.04,-0.2 -0.08,-1.6 -0.08,-3.2 v -5.1 -2.3 -5.8 l -1.2,-3.3 v -21.5 l 1.2,-8.3 v -6.2 z" transform="translate(0,-294.5)" fill="black"/>
+      
+      <!-- Vertical Stripes -->
+      <path d="m 17.6,1 -0.5,65.9 h 2.9 L 19.4,0.7 Z" fill="black"/>
+      <path d="m 29.5,1 0.5,65.9 h -2.9 l 0.5,-66.2 z" fill="black"/>
+      
+      <!-- Horizontal Bars -->
+      <rect x="8.5" y="10.4" width="30" height="3.9" fill="black"/>
+      <rect x="8.5" y="58.7" width="30" height="3.9" fill="black"/>
+      
+      <!-- Center Bands -->
+      <path d="m 11.8,21.4 -1.3,7.8 h 25.5 l -1.3,-7.8 z" fill="black"/>
+      <path d="m 14.9,56 -3.1,7.3 h 23.4 l -3.1,-7.3 z" fill="black"/>
+      
+      <!-- Legs -->
+      <path d="M 2,71.5 H 6.6 V 87 H 2 Z" fill="black"/>
+      <path d="M 40.4,71.5 H 45 V 87 H 40.4 Z" fill="black"/>
+    </svg>`;
+
+    // Preload the car image using the SVG data URL.
+    function preload() {
+      carImg = loadImage("data:image/svg+xml;base64," + btoa(carSVGString));
+    }
+
+    function setup() {
+      // Create a canvas that spans the full scrollable document.
+      let canvasWidth = document.documentElement.scrollWidth;
+      let canvasHeight = document.documentElement.scrollHeight;
+      let cnv = createCanvas(canvasWidth, canvasHeight);
+      // Position the canvas absolutely behind the content.
+      cnv.style('position', 'absolute');
+      cnv.style('top', '0');
+      cnv.style('left', '0');
+      cnv.style('z-index', '-1');
+
+      // Center image drawing.
+      imageMode(CENTER);
+      
+      // Define a rectangular path based on canvas dimensions.
+      corners = [
+        createVector(margin, margin),
+        createVector(width - margin, margin),
+        createVector(width - margin, height - margin),
+        createVector(margin, height - margin)
+      ];
+      currentPos = corners[0].copy();
+      currentTargetIndex = 1;
+    }
+
+    function draw() {
+      background('#282a36');
+      
+      // Add the current car position to the trace.
+      trace.push(currentPos.copy());
+      if (trace.length > 5000) {
+        trace.shift();
+      }
+      
+      // Draw the fading blue trace.
+      for (let i = 0; i < trace.length - 1; i++) {
+        let d = dist(currentPos.x, currentPos.y, trace[i].x, trace[i].y);
+        let alpha = 255;
+        if (d > 700) {
+          alpha = map(d, 700, 1000, 255, 0);
+          alpha = constrain(alpha, 0, 255);
+        }
+        stroke(139, 233, 253, alpha); // #8be9fd as RGB (139,233,253)
+        strokeWeight(2);
+        line(trace[i].x, trace[i].y, trace[i+1].x, trace[i+1].y);
+      }
+      
+      // Move the car along the rectangular path.
+      let target = corners[currentTargetIndex];
+      let dir = p5.Vector.sub(target, currentPos);
+      if (dir.mag() < speed) {
+        currentPos = target.copy();
+        currentTargetIndex = (currentTargetIndex + 1) % corners.length;
+      } else {
+        dir.normalize();
+        currentPos.add(p5.Vector.mult(dir, speed));
+      }
+      
+      // Compute the car's angle (adjusting by PI/2 because the SVG is drawn facing upward).
+      let angle = atan2(dir.y, dir.x) + PI / 2;
+      
+      push();
+        translate(currentPos.x, currentPos.y);
+        rotate(angle);
+        scale(carScale);
+        image(carImg, 0, 0);
+      pop();
+    }
+
+    function windowResized() {
+      let canvasWidth = document.documentElement.scrollWidth;
+      let canvasHeight = document.documentElement.scrollHeight;
+      resizeCanvas(canvasWidth, canvasHeight);
+      corners = [
+        createVector(margin, margin),
+        createVector(width - margin, margin),
+        createVector(width - margin, height - margin),
+        createVector(margin, height - margin)
+      ];
+    }
+  </script>
+</body>
+</html>
