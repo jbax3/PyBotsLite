@@ -38,10 +38,10 @@
       margin: 0 0 5px 0;
       color: #EEE;
     }
-    /* Style for the pre/code block */
-    #editor pre {
+    /* This broke the cursor alignment with the actual text in the editor */
+    /*#editor pre {
       margin: 0 0 5px 0;
-    }
+    }*/
     pre code {
       padding: 1em;
       border-radius: 4px;
@@ -121,12 +121,12 @@
     <p>Enter your control code (for example, a bang–bang controller):</p>
     <!-- Code block for Highlight.js (no extra indentation) -->
     <pre><code class="language-python">def racer_control():
-    if racer.sensor_val > 150:
-        racer.left_motor_speed = 1
-        racer.right_motor_speed = 3
-    else:
-        racer.left_motor_speed = 3
-        racer.right_motor_speed = 1</code></pre>
+  if racer.sensor_val > 150:
+    racer.left_motor_speed = 1
+    racer.right_motor_speed = 3
+  else:
+    racer.left_motor_speed = 3
+    racer.right_motor_speed = 1</code></pre>
     <!-- The textarea will be replaced by CodeMirror -->
     <textarea id="code-input" placeholder="Enter your control code here"></textarea>
     <button id="run-code">Run Code</button>
@@ -220,6 +220,13 @@
     
     // Initial canvas sizing.
     updateCanvasDuringDrag();
+
+    // Trigger autocomplete on every input.
+    editor.on("inputRead", function(cm, change) {
+      if (change.text[0] && change.text[0].trim() !== "") {
+        cm.showHint({ completeSingle: false });
+      }
+    });
 
     // --- Custom Autocomplete Helper (racer completions) ---
     let racerCompletions = [];
